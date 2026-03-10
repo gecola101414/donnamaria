@@ -1,0 +1,5 @@
+{
+  "name": "DONNA MARIA $",
+  "description": "Sistema di gestione inventario, vendite, libretto crediti e reportistica.",
+  "requestFramePermissions": ["microphone"]
+}
