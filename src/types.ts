@@ -1,4 +1,4 @@
-export type Category = 'Tabaccheria' | 'Caffetteria' | 'Bibite' | 'Gelati' | 'Snack';
+export type Category = string;
 
 export interface Product {
   id: string;
@@ -8,6 +8,11 @@ export interface Product {
   cost: number;
   stock: number;
   minStock: number;
+}
+
+export interface CartItem {
+  product: Product;
+  quantity: number;
 }
 
 export interface SaleItem {

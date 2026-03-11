@@ -2,8 +2,8 @@ import React, { useState } from 'react';
 import { useAppContext } from '../context/AppContext';
 import { UserPlus, CreditCard, History, Search, BookUser } from 'lucide-react';
 
-export const CreditBook: React.FC = () => {
-  const { customers, creditTransactions, addCustomer, recordCreditPayment } = useAppContext();
+export const CreditBook: React.FC<{ setActiveTab?: (tab: string) => void }> = ({ setActiveTab }) => {
+  const { customers, creditTransactions, sales, products, addCustomer, recordCreditPayment, revertCreditSale, revertCreditPayment } = useAppContext();
   const [newCustomerName, setNewCustomerName] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCustomer, setSelectedCustomer] = useState<string | null>(null);
@@ -29,6 +29,21 @@ export const CreditBook: React.FC = () => {
       setPaymentAmount('');
       setSelectedCustomer(null);
       alert('Pagamento registrato con successo!');
+    }
+  };
+
+  const handleRevert = (txId: string) => {
+    if (window.confirm('Sei sicuro di voler annullare questo addebito? I prodotti verranno rimessi nel carrello e il saldo verrà ripristinato.')) {
+      revertCreditSale(txId);
+      if (setActiveTab) {
+        setActiveTab('pos');
+      }
+    }
+  };
+
+  const handleRevertPayment = (txId: string) => {
+    if (window.confirm('Sei sicuro di voler annullare questo pagamento? Il debito del cliente verrà ripristinato.')) {
+      revertCreditPayment(txId);
     }
   };
 
@@ -158,23 +173,63 @@ export const CreditBook: React.FC = () => {
                   <History size={18} className="mr-2" />
                   Storico Movimenti
                 </h4>
-                <div className="space-y-3 max-h-64 overflow-y-auto">
+                <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
                   {customerTransactions.length === 0 ? (
                     <p className="text-sm text-slate-500 text-center">Nessun movimento.</p>
                   ) : (
-                    customerTransactions.map(tx => (
-                      <div key={tx.id} className="flex justify-between items-center text-sm p-2 bg-slate-50 rounded-lg">
-                        <div>
-                          <p className="font-medium text-slate-700">
-                            {tx.type === 'charge' ? 'Addebito (Spesa)' : 'Pagamento'}
-                          </p>
-                          <p className="text-xs text-slate-500">{new Date(tx.date).toLocaleString()}</p>
+                    customerTransactions.map(tx => {
+                      const sale = tx.type === 'charge' && tx.saleId ? sales.find(s => s.id === tx.saleId) : null;
+                      return (
+                      <div key={tx.id} className="flex flex-col text-sm p-3 bg-slate-50 rounded-lg border border-slate-100">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <p className="font-medium text-slate-700">
+                              {tx.type === 'charge' ? 'Addebito (Spesa)' : 'Pagamento'}
+                            </p>
+                            <p className="text-xs text-slate-500">{new Date(tx.date).toLocaleString()}</p>
+                          </div>
+                          <span className={`font-bold ${tx.type === 'charge' ? 'text-red-500' : 'text-emerald-600'}`}>
+                            {tx.type === 'charge' ? '-' : '+'}€{tx.amount.toFixed(2)}
+                          </span>
                         </div>
-                        <span className={`font-bold ${tx.type === 'charge' ? 'text-red-500' : 'text-emerald-600'}`}>
-                          {tx.type === 'charge' ? '-' : '+'}€{tx.amount.toFixed(2)}
-                        </span>
+                        {sale && (
+                          <div className="mt-3 pt-3 border-t border-slate-200">
+                            <p className="text-xs font-semibold text-slate-600 mb-2">Prodotti acquistati:</p>
+                            <ul className="text-xs text-slate-500 space-y-1 mb-3">
+                              {sale.items.map((item, idx) => {
+                                const product = products.find(p => p.id === item.productId);
+                                return (
+                                  <li key={idx} className="flex justify-between">
+                                    <span>{item.quantity}x {product ? product.name : 'Prodotto Rimosso'}</span>
+                                    <span>€{(item.priceAtSale * item.quantity).toFixed(2)}</span>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                            <div className="flex justify-end">
+                              <button
+                                onClick={() => handleRevert(tx.id)}
+                                className="text-xs font-medium text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-md transition-colors"
+                              >
+                                Annulla e Modifica Scontrino
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                        {tx.type === 'payment' && (
+                          <div className="mt-3 pt-3 border-t border-slate-200">
+                            <div className="flex justify-end">
+                              <button
+                                onClick={() => handleRevertPayment(tx.id)}
+                                className="text-xs font-medium text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-md transition-colors"
+                              >
+                                Annulla Pagamento
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    ))
+                    )})
                   )}
                 </div>
               </div>

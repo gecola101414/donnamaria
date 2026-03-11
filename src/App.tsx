@@ -19,7 +19,7 @@ export default function App() {
       case 'inventory':
         return <Inventory />;
       case 'credit':
-        return <CreditBook />;
+        return <CreditBook setActiveTab={setActiveTab} />;
       case 'reports':
         return <Reports />;
       default:

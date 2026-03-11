@@ -26,17 +26,57 @@ export const Reports: React.FC = () => {
       const dailyAverage = soldInPeriod / daysToAnalyze;
       const projectedNeed = Math.ceil(dailyAverage * targetDaysCoverage);
       const suggestedReorder = Math.max(0, projectedNeed - p.stock);
+      const reorderCost = suggestedReorder * p.cost;
       
       return {
         product: p,
         soldInPeriod,
         dailyAverage,
         suggestedReorder,
+        reorderCost,
         isLowStock: p.stock <= p.minStock
       };
     }).filter(r => r.suggestedReorder > 0 || r.isLowStock)
       .sort((a, b) => b.suggestedReorder - a.suggestedReorder);
   }, [products, sales, daysToAnalyze, targetDaysCoverage]);
+
+  const totalReorderCost = reorderSuggestions.reduce((sum, item) => sum + item.reorderCost, 0);
+
+  // Historical Sales Summary by Product
+  const historicalSalesSummary = useMemo(() => {
+    const summary = new Map<string, { name: string, category: string, quantity: number, revenue: number, cost: number, profit: number }>();
+    
+    sales.forEach(sale => {
+      sale.items.forEach(item => {
+        const product = products.find(p => p.id === item.productId);
+        const name = product ? product.name : 'Prodotto Eliminato';
+        const category = product ? product.category : '-';
+        
+        const existing = summary.get(item.productId);
+        const itemRevenue = item.priceAtSale * item.quantity;
+        const itemCost = item.costAtSale * item.quantity;
+        const itemProfit = itemRevenue - itemCost;
+
+        if (existing) {
+          existing.quantity += item.quantity;
+          existing.revenue += itemRevenue;
+          existing.cost += itemCost;
+          existing.profit += itemProfit;
+        } else {
+          summary.set(item.productId, {
+            name,
+            category,
+            quantity: item.quantity,
+            revenue: itemRevenue,
+            cost: itemCost,
+            profit: itemProfit
+          });
+        }
+      });
+    });
+
+    return Array.from(summary.values()).sort((a, b) => b.revenue - a.revenue);
+  }, [sales, products]);
 
   // General Stats
   const totalCashSales = sales.filter(s => s.paymentMethod === 'cash').reduce((sum, s) => sum + s.totalAmount, 0);
@@ -135,6 +175,7 @@ export const Reports: React.FC = () => {
                   <th className="p-4 font-medium text-right">Media/Giorno</th>
                   <th className="p-4 font-medium text-right">Giacenza Attuale</th>
                   <th className="p-4 font-medium text-right bg-indigo-50/50 text-indigo-700">Riordino Suggerito</th>
+                  <th className="p-4 font-medium text-right bg-indigo-50/50 text-indigo-700">Costo Stimato</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -161,11 +202,91 @@ export const Reports: React.FC = () => {
                         +{item.suggestedReorder}
                       </span>
                     </td>
+                    <td className="p-4 text-right bg-indigo-50/30 font-bold text-slate-900">
+                      €{item.reorderCost.toFixed(2)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
+              <tfoot className="bg-slate-50 border-t-2 border-slate-200">
+                <tr>
+                  <td colSpan={5} className="p-4 text-right font-bold text-slate-700">
+                    Costo Totale Stimato per il Riordino:
+                  </td>
+                  <td className="p-4 text-right font-bold text-xl text-indigo-600">
+                    €{totalReorderCost.toFixed(2)}
+                  </td>
+                </tr>
+              </tfoot>
             </table>
           )}
+        </div>
+      </div>
+
+      {/* Historical Sales Summary Table */}
+      <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="p-6 border-b border-slate-100 bg-slate-50">
+          <h3 className="text-lg font-bold text-slate-800 flex items-center">
+            <TrendingUp size={20} className="mr-2 text-emerald-500" />
+            Riepilogo Dettagliato Vendite Storiche
+          </h3>
+          <p className="text-sm text-slate-500 mt-1">
+            Dettaglio dei ricavi, costi e margini per ogni singolo prodotto venduto.
+          </p>
+        </div>
+        
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-slate-50 text-slate-500 text-sm border-b border-slate-100">
+                <th className="p-4 font-medium">Prodotto</th>
+                <th className="p-4 font-medium text-right">Q.tà Venduta</th>
+                <th className="p-4 font-medium text-right">Costo Totale (Riga)</th>
+                <th className="p-4 font-medium text-right">Incasso Totale (Riga)</th>
+                <th className="p-4 font-medium text-right text-emerald-600">Margine (Utile)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {historicalSalesSummary.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="p-8 text-center text-slate-500">
+                    Nessuna vendita registrata.
+                  </td>
+                </tr>
+              ) : (
+                historicalSalesSummary.map((item, idx) => (
+                  <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
+                    <td className="p-4">
+                      <p className="font-medium text-slate-900">{item.name}</p>
+                      <p className="text-xs text-slate-500">{item.category}</p>
+                    </td>
+                    <td className="p-4 text-right font-medium text-slate-700">{item.quantity}</td>
+                    <td className="p-4 text-right text-slate-500">€{item.cost.toFixed(2)}</td>
+                    <td className="p-4 text-right font-medium text-slate-900">€{item.revenue.toFixed(2)}</td>
+                    <td className="p-4 text-right font-bold text-emerald-600">€{item.profit.toFixed(2)}</td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+            {historicalSalesSummary.length > 0 && (
+              <tfoot className="bg-slate-50 border-t-2 border-slate-200">
+                <tr>
+                  <td colSpan={2} className="p-4 text-right font-bold text-slate-700">
+                    Totali Complessivi:
+                  </td>
+                  <td className="p-4 text-right font-bold text-slate-700">
+                    €{historicalSalesSummary.reduce((sum, i) => sum + i.cost, 0).toFixed(2)}
+                  </td>
+                  <td className="p-4 text-right font-bold text-slate-900">
+                    €{historicalSalesSummary.reduce((sum, i) => sum + i.revenue, 0).toFixed(2)}
+                  </td>
+                  <td className="p-4 text-right font-bold text-xl text-emerald-600">
+                    €{totalProfit.toFixed(2)}
+                  </td>
+                </tr>
+              </tfoot>
+            )}
+          </table>
         </div>
       </div>
     </div>

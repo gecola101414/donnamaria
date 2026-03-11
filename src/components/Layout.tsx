@@ -51,7 +51,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTa
 
       {/* Main Content */}
       <main className="flex-1 overflow-auto">
-        <div className="p-8 max-w-7xl mx-auto">
+        <div className="p-4 md:p-6 max-w-[1600px] mx-auto h-full">
           {children}
         </div>
       </main>

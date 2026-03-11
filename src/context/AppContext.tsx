@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { Product, Sale, SaleItem, Customer, CreditTransaction } from '../types';
+import { Product, Sale, SaleItem, Customer, CreditTransaction, CartItem } from '../types';
 import { INITIAL_PRODUCTS } from '../data/initialData';
 
 interface AppContextType {
@@ -8,6 +8,9 @@ interface AppContextType {
   customers: Customer[];
   creditTransactions: CreditTransaction[];
   favorites: string[];
+  categories: string[];
+  cart: CartItem[];
+  setCart: React.Dispatch<React.SetStateAction<CartItem[]>>;
   addProduct: (product: Omit<Product, 'id'>) => void;
   updateProduct: (id: string, product: Partial<Product>) => void;
   deleteProduct: (id: string) => void;
@@ -16,6 +19,11 @@ interface AppContextType {
   addCustomer: (name: string) => void;
   recordCreditPayment: (customerId: string, amount: number) => void;
   toggleFavorite: (productId: string) => void;
+  addCategory: (category: string) => void;
+  updateCategory: (oldName: string, newName: string) => void;
+  deleteCategory: (name: string) => void;
+  revertCreditSale: (transactionId: string) => void;
+  revertCreditPayment: (transactionId: string) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -46,6 +54,16 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     return saved ? JSON.parse(saved) : [];
   });
 
+  const [categories, setCategories] = useState<string[]>(() => {
+    const saved = localStorage.getItem('gestionale_categories');
+    return saved ? JSON.parse(saved) : ['Tabaccheria', 'Snack', 'Gelati', 'Caffetteria', 'Bibite'];
+  });
+
+  const [cart, setCart] = useState<CartItem[]>(() => {
+    const saved = localStorage.getItem('gestionale_cart');
+    return saved ? JSON.parse(saved) : [];
+  });
+
   useEffect(() => {
     localStorage.setItem('gestionale_products', JSON.stringify(products));
   }, [products]);
@@ -65,6 +83,14 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     localStorage.setItem('gestionale_favorites', JSON.stringify(favorites));
   }, [favorites]);
+
+  useEffect(() => {
+    localStorage.setItem('gestionale_categories', JSON.stringify(categories));
+  }, [categories]);
+
+  useEffect(() => {
+    localStorage.setItem('gestionale_cart', JSON.stringify(cart));
+  }, [cart]);
 
   const addProduct = (product: Omit<Product, 'id'>) => {
     const newProduct = { ...product, id: Date.now().toString() };
@@ -107,6 +133,34 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         ? current.filter(id => id !== productId)
         : [...current, productId]
     );
+  };
+
+  const addCategory = (category: string) => {
+    if (!categories.includes(category)) {
+      setCategories([...categories, category]);
+    }
+  };
+
+  const updateCategory = (oldName: string, newName: string) => {
+    if (oldName === newName) return;
+    if (categories.includes(newName)) {
+      alert('Una categoria con questo nome esiste già.');
+      return;
+    }
+    setCategories(categories.map(c => c === oldName ? newName : c));
+    setProducts(products.map(p => p.category === oldName ? { ...p, category: newName } : p));
+  };
+
+  const deleteCategory = (name: string) => {
+    const newCategories = categories.filter(c => c !== name);
+    const hasProducts = products.some(p => p.category === name);
+    
+    if (hasProducts && !newCategories.includes('Senza Categoria')) {
+      newCategories.push('Senza Categoria');
+    }
+    
+    setCategories(newCategories);
+    setProducts(products.map(p => p.category === name ? { ...p, category: 'Senza Categoria' } : p));
   };
 
   const recordSale = (items: { product: Product; quantity: number }[], paymentMethod: 'cash' | 'credit', customerId?: string) => {
@@ -157,11 +211,59 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     );
   };
 
+  const revertCreditSale = (transactionId: string) => {
+    const tx = creditTransactions.find(t => t.id === transactionId);
+    if (!tx || tx.type !== 'charge' || !tx.saleId) return;
+
+    const sale = sales.find(s => s.id === tx.saleId);
+    if (!sale) return;
+
+    // 1. Rimuovi la vendita
+    setSales(sales.filter(s => s.id !== tx.saleId));
+
+    // 2. Rimuovi la transazione
+    setCreditTransactions(creditTransactions.filter(t => t.id !== transactionId));
+
+    // 3. Ripristina il saldo del cliente
+    setCustomers(customers.map(c => c.id === tx.customerId ? { ...c, balance: c.balance - tx.amount } : c));
+
+    // 4. Ripristina le scorte
+    setProducts(currentProducts => 
+      currentProducts.map(p => {
+        const soldItem = sale.items.find(i => i.productId === p.id);
+        if (soldItem) {
+          return { ...p, stock: p.stock + soldItem.quantity };
+        }
+        return p;
+      })
+    );
+
+    // 5. Ricrea il carrello
+    const recreatedCart = sale.items.map(item => {
+      const product = products.find(p => p.id === item.productId);
+      return product ? { product, quantity: item.quantity } : null;
+    }).filter(Boolean) as CartItem[];
+
+    setCart(recreatedCart);
+  };
+
+  const revertCreditPayment = (transactionId: string) => {
+    const tx = creditTransactions.find(t => t.id === transactionId);
+    if (!tx || tx.type !== 'payment') return;
+
+    // 1. Rimuovi la transazione
+    setCreditTransactions(creditTransactions.filter(t => t.id !== transactionId));
+
+    // 2. Ripristina il saldo del cliente (riaggiungi il debito)
+    setCustomers(customers.map(c => c.id === tx.customerId ? { ...c, balance: c.balance + tx.amount } : c));
+  };
+
   return (
     <AppContext.Provider value={{ 
-      products, sales, customers, creditTransactions, favorites,
+      products, sales, customers, creditTransactions, favorites, categories, cart, setCart,
       addProduct, updateProduct, deleteProduct, addStock, recordSale,
-      addCustomer, recordCreditPayment, toggleFavorite
+      addCustomer, recordCreditPayment, toggleFavorite, addCategory,
+      updateCategory, deleteCategory, revertCreditSale, revertCreditPayment
     }}>
       {children}
     </AppContext.Provider>

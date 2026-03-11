@@ -1,19 +1,14 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useAppContext } from '../context/AppContext';
-import { Product } from '../types';
+import { Product, CartItem } from '../types';
 import { Search, Plus, Minus, Trash2, ShoppingBag, Star, CreditCard, Banknote, Mic, MicOff } from 'lucide-react';
 
-interface CartItem {
-  product: Product;
-  quantity: number;
-}
-
 export const POS: React.FC = () => {
-  const { products, sales, customers, favorites, recordSale, toggleFavorite } = useAppContext();
+  const { products, sales, customers, favorites, recordSale, toggleFavorite, categories, cart, setCart } = useAppContext();
   const [searchTerm, setSearchTerm] = useState('');
-  const [cart, setCart] = useState<CartItem[]>([]);
   const [filterCategory, setFilterCategory] = useState<string>('Più Usati');
   const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [paymentStep, setPaymentStep] = useState<'method' | 'customer'>('method');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'credit'>('cash');
   const [selectedCustomer, setSelectedCustomer] = useState<string>('');
   
@@ -24,8 +19,11 @@ export const POS: React.FC = () => {
 
   useEffect(() => {
     return () => {
+      shouldListenRef.current = false;
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {}
       }
     };
   }, []);
@@ -104,16 +102,26 @@ export const POS: React.FC = () => {
     recordSale(cart, paymentMethod, paymentMethod === 'credit' ? selectedCustomer : undefined);
     setCart([]);
     setShowPaymentModal(false);
+    setPaymentStep('method');
     setSelectedCustomer('');
     setPaymentMethod('cash');
     alert(`Vendita completata! Totale: €${total.toFixed(2)}`);
+  };
+
+  const handleOpenPaymentModal = () => {
+    setPaymentStep('method');
+    setPaymentMethod('cash');
+    setSelectedCustomer('');
+    setShowPaymentModal(true);
   };
 
   const toggleVoiceSearch = () => {
     if (isListening) {
       shouldListenRef.current = false;
       if (recognitionRef.current) {
-        recognitionRef.current.stop();
+        try {
+          recognitionRef.current.stop();
+        } catch (e) {}
       }
       setIsListening(false);
       setLastHeard('');
@@ -131,6 +139,8 @@ export const POS: React.FC = () => {
   };
 
   const startRecognition = () => {
+    if (!shouldListenRef.current) return;
+
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     const recognition = new SpeechRecognition();
     recognitionRef.current = recognition;
@@ -204,26 +214,23 @@ export const POS: React.FC = () => {
     
     recognition.onerror = (event: any) => {
       console.error('Errore riconoscimento vocale:', event.error);
-      if (event.error === 'not-allowed') {
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
         alert('Permesso per il microfono negato. Assicurati di aver concesso l\'accesso al microfono nel browser.');
         shouldListenRef.current = false;
         setIsListening(false);
       }
-      // Ignoriamo errori come 'no-speech' per permettere il riavvio automatico
+      // Ignoriamo errori come 'no-speech' per permettere il riavvio automatico in onend
     };
     
     recognition.onend = () => {
       if (shouldListenRef.current) {
-        // Riavvia il riconoscimento se dovrebbe essere ancora in ascolto
+        // Invece di riavviare la stessa istanza (che causa bug in Chrome),
+        // creiamo una nuova istanza chiamando di nuovo startRecognition()
         setTimeout(() => {
-          if (shouldListenRef.current && recognitionRef.current) {
-            try {
-              recognitionRef.current.start();
-            } catch (e) {
-              // Ignora l'errore se è già partito
-            }
+          if (shouldListenRef.current) {
+            startRecognition();
           }
-        }, 100);
+        }, 250);
       } else {
         setIsListening(false);
       }
@@ -233,15 +240,21 @@ export const POS: React.FC = () => {
       recognition.start();
     } catch (e) {
       console.error(e);
-      shouldListenRef.current = false;
-      setIsListening(false);
+      // Se fallisce l'avvio, riproviamo dopo un istante creando una nuova istanza
+      if (shouldListenRef.current) {
+        setTimeout(() => {
+          if (shouldListenRef.current) {
+            startRecognition();
+          }
+        }, 500);
+      }
     }
   };
 
-  const categories = ['Più Usati', 'Tutti', 'Tabaccheria', 'Caffetteria', 'Bibite', 'Gelati', 'Snack'];
+  const displayCategories = ['Più Usati', 'Tutti', ...categories];
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] gap-6 relative">
+    <div className="flex h-full gap-4 relative">
       {/* Products Section */}
       <div className="flex-1 flex flex-col bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
         <div className="p-4 border-b border-slate-100 space-y-4">
@@ -255,32 +268,32 @@ export const POS: React.FC = () => {
               className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-emerald-500"
             />
           </div>
-          <div className="flex space-x-2 overflow-x-auto pb-2 scrollbar-hide">
-            {categories.map(cat => (
+          <div className="flex flex-wrap gap-2 pb-2">
+            {displayCategories.map(cat => (
               <button
                 key={cat}
                 onClick={() => setFilterCategory(cat)}
-                className={`px-4 py-1.5 rounded-full text-sm font-medium transition-colors whitespace-nowrap ${
+                className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors whitespace-nowrap ${
                   filterCategory === cat 
                     ? 'bg-slate-900 text-white' 
                     : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                {cat === 'Più Usati' ? <span className="flex items-center"><Star size={14} className="mr-1" /> {cat}</span> : cat}
+                {cat === 'Più Usati' ? <span className="flex items-center"><Star size={12} className="mr-1" /> {cat}</span> : cat}
               </button>
             ))}
           </div>
         </div>
         
         <div className="flex-1 overflow-auto p-4">
-          {/* Grid with 3 columns for products (as requested for cigarettes, applied generally for consistency) */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          {/* Grid with responsive columns for products */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
             {filteredProducts.map(p => (
               <div key={p.id} className="relative group">
                 <button
                   onClick={() => addToCart(p)}
                   disabled={p.stock <= 0}
-                  className={`w-full p-4 rounded-xl border text-left transition-all h-full flex flex-col ${
+                  className={`w-full p-3 rounded-xl border text-left transition-all h-full flex flex-col ${
                     p.stock <= 0 
                       ? 'opacity-50 cursor-not-allowed border-slate-200 bg-slate-50' 
                       : 'border-slate-200 hover:border-emerald-500 hover:shadow-md bg-white'
@@ -356,30 +369,30 @@ export const POS: React.FC = () => {
             </div>
           ) : (
             cart.map(item => (
-              <div key={item.product.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+              <div key={item.product.id} className="flex items-center justify-between p-2 bg-slate-50 rounded-xl border border-slate-100">
                 <div className="flex-1 pr-2">
-                  <p className="font-medium text-slate-900 text-sm leading-tight">{item.product.name}</p>
-                  <p className="text-emerald-600 font-bold text-sm">€{(item.product.price * item.quantity).toFixed(2)}</p>
+                  <p className="font-medium text-slate-900 text-xs leading-tight">{item.product.name}</p>
+                  <p className="text-emerald-600 font-bold text-xs">€{(item.product.price * item.quantity).toFixed(2)}</p>
                 </div>
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-1">
                   <button 
                     onClick={() => updateQuantity(item.product.id, -1)}
-                    className="w-8 h-8 flex items-center justify-center bg-white rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100"
+                    className="w-7 h-7 flex items-center justify-center bg-white rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100"
                   >
-                    <Minus size={14} />
+                    <Minus size={12} />
                   </button>
-                  <span className="w-6 text-center font-medium">{item.quantity}</span>
+                  <span className="w-5 text-center font-medium text-xs">{item.quantity}</span>
                   <button 
                     onClick={() => updateQuantity(item.product.id, 1)}
-                    className="w-8 h-8 flex items-center justify-center bg-white rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100"
+                    className="w-7 h-7 flex items-center justify-center bg-white rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-100"
                   >
-                    <Plus size={14} />
+                    <Plus size={12} />
                   </button>
                   <button 
                     onClick={() => removeFromCart(item.product.id)}
-                    className="w-8 h-8 flex items-center justify-center text-red-500 hover:bg-red-50 rounded-lg ml-1"
+                    className="w-7 h-7 flex items-center justify-center text-red-500 hover:bg-red-50 rounded-lg ml-1"
                   >
-                    <Trash2 size={16} />
+                    <Trash2 size={14} />
                   </button>
                 </div>
               </div>
@@ -393,7 +406,7 @@ export const POS: React.FC = () => {
             <span className="text-3xl font-bold text-slate-900">€{total.toFixed(2)}</span>
           </div>
           <button
-            onClick={() => setShowPaymentModal(true)}
+            onClick={handleOpenPaymentModal}
             disabled={cart.length === 0}
             className={`w-full py-4 rounded-xl font-bold text-lg transition-colors ${
               cart.length === 0 
@@ -409,69 +422,103 @@ export const POS: React.FC = () => {
       {/* Payment Modal */}
       {showPaymentModal && (
         <div className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 rounded-2xl">
-          <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full">
-            <h2 className="text-2xl font-bold text-slate-900 mb-6 text-center">Metodo di Pagamento</h2>
-            
-            <div className="grid grid-cols-2 gap-4 mb-6">
-              <button
-                onClick={() => setPaymentMethod('cash')}
-                className={`p-4 rounded-xl border-2 flex flex-col items-center justify-center transition-colors ${
-                  paymentMethod === 'cash' 
-                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700' 
-                    : 'border-slate-200 text-slate-500 hover:border-emerald-200'
-                }`}
-              >
-                <Banknote size={32} className="mb-2" />
-                <span className="font-bold">Contanti/Carta</span>
-              </button>
-              <button
-                onClick={() => setPaymentMethod('credit')}
-                className={`p-4 rounded-xl border-2 flex flex-col items-center justify-center transition-colors ${
-                  paymentMethod === 'credit' 
-                    ? 'border-indigo-500 bg-indigo-50 text-indigo-700' 
-                    : 'border-slate-200 text-slate-500 hover:border-indigo-200'
-                }`}
-              >
-                <CreditCard size={32} className="mb-2" />
-                <span className="font-bold">Libretto Credito</span>
-              </button>
-            </div>
+          <div className="bg-white p-8 rounded-2xl shadow-xl max-w-2xl w-full mx-4">
+            {paymentStep === 'method' ? (
+              <>
+                <h2 className="text-2xl font-bold text-slate-900 mb-6 text-center">Metodo di Pagamento</h2>
+                
+                <div className="grid grid-cols-2 gap-4 mb-6">
+                  <button
+                    onClick={() => setPaymentMethod('cash')}
+                    className={`p-6 rounded-xl border-2 flex flex-col items-center justify-center transition-colors ${
+                      paymentMethod === 'cash' 
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700' 
+                        : 'border-slate-200 text-slate-500 hover:border-emerald-200'
+                    }`}
+                  >
+                    <Banknote size={48} className="mb-4" />
+                    <span className="font-bold text-lg">Contanti/Carta</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setPaymentMethod('credit');
+                      setPaymentStep('customer');
+                    }}
+                    className={`p-6 rounded-xl border-2 flex flex-col items-center justify-center transition-colors border-slate-200 text-slate-500 hover:border-indigo-200`}
+                  >
+                    <CreditCard size={48} className="mb-4" />
+                    <span className="font-bold text-lg">Libretto Credito</span>
+                  </button>
+                </div>
 
-            {paymentMethod === 'credit' && (
-              <div className="mb-6">
-                <label className="block text-sm font-medium text-slate-700 mb-2">Seleziona Cliente</label>
-                <select
-                  value={selectedCustomer}
-                  onChange={(e) => setSelectedCustomer(e.target.value)}
-                  className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
-                >
-                  <option value="">-- Seleziona --</option>
+                <div className="flex space-x-4">
+                  <button
+                    onClick={() => setShowPaymentModal(false)}
+                    className="flex-1 py-4 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors text-lg"
+                  >
+                    Annulla
+                  </button>
+                  <button
+                    onClick={handleCheckout}
+                    className={`flex-1 py-4 rounded-xl font-bold text-white transition-colors bg-emerald-500 hover:bg-emerald-600 shadow-md shadow-emerald-500/20 text-lg`}
+                  >
+                    Conferma (€{total.toFixed(2)})
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h2 className="text-2xl font-bold text-slate-900 mb-6 text-center">Seleziona Cliente (Credito)</h2>
+                
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 mb-6 max-h-80 overflow-y-auto p-1">
                   {customers.map(c => (
-                    <option key={c.id} value={c.id}>{c.name} (Saldo: €{c.balance.toFixed(2)})</option>
+                    <button
+                      key={c.id}
+                      onClick={() => setSelectedCustomer(c.id)}
+                      className={`p-4 rounded-xl border text-left transition-all ${
+                        selectedCustomer === c.id
+                          ? 'border-indigo-500 bg-indigo-50 text-indigo-900 ring-2 ring-indigo-500 ring-offset-2 shadow-sm'
+                          : 'border-slate-200 bg-white hover:border-indigo-300 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="font-bold truncate text-sm">{c.name}</div>
+                      <div className={`text-xs mt-1 font-medium ${c.balance > 0 ? 'text-red-500' : 'text-slate-500'}`}>
+                        Saldo: €{c.balance.toFixed(2)}
+                      </div>
+                    </button>
                   ))}
-                </select>
-              </div>
-            )}
+                  {customers.length === 0 && (
+                    <div className="col-span-full text-center text-slate-500 py-8">
+                      Nessun cliente registrato nel libretto.
+                    </div>
+                  )}
+                </div>
 
-            <div className="flex space-x-4">
-              <button
-                onClick={() => setShowPaymentModal(false)}
-                className="flex-1 py-3 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors"
-              >
-                Annulla
-              </button>
-              <button
-                onClick={handleCheckout}
-                disabled={paymentMethod === 'credit' && !selectedCustomer}
-                className={`flex-1 py-3 rounded-xl font-bold text-white transition-colors ${
-                  paymentMethod === 'credit' && !selectedCustomer
-                    ? 'bg-slate-300 cursor-not-allowed'
-                    : 'bg-emerald-500 hover:bg-emerald-600 shadow-md shadow-emerald-500/20'
-                }`}
-              >
-                Conferma (€{total.toFixed(2)})
-              </button>
-            </div>
+                <div className="flex space-x-4">
+                  <button
+                    onClick={() => {
+                      setPaymentStep('method');
+                      setPaymentMethod('cash');
+                      setSelectedCustomer('');
+                    }}
+                    className="flex-1 py-4 rounded-xl font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 transition-colors text-lg"
+                  >
+                    Annulla Credito
+                  </button>
+                  <button
+                    onClick={handleCheckout}
+                    disabled={!selectedCustomer}
+                    className={`flex-1 py-4 rounded-xl font-bold text-white transition-colors text-lg ${
+                      !selectedCustomer
+                        ? 'bg-slate-300 cursor-not-allowed'
+                        : 'bg-indigo-500 hover:bg-indigo-600 shadow-md shadow-indigo-500/20'
+                    }`}
+                  >
+                    Conferma (€{total.toFixed(2)})
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
