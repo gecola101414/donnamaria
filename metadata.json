@@ -1,5 +1,6 @@
 {
-  "name": "DONNA MARIA $",
-  "description": "Sistema di gestione inventario, vendite, libretto crediti e reportistica.",
-  "requestFramePermissions": ["microphone"]
+  "name": "Il Massimo della Terra",
+  "description": "Agricoltura urbana circolare, cassette antispreco da 5 euro, orti solidali accessibili e laboratori educativi ideati da Massimo.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }
